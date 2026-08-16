@@ -32,7 +32,8 @@
 		GripVertical,
 		Eye,
 		EyeOff,
-		RotateCcw
+		RotateCcw,
+		Boxes
 	} from 'lucide-svelte';
 	import { flip } from 'svelte/animate';
 	import { licenseStore } from '$lib/stores/license';
@@ -131,6 +132,7 @@
 		{ href: '/images', Icon: Images, label: 'Images', permission: 'images' },
 		{ href: '/volumes', Icon: HardDrive, label: 'Volumes', permission: 'volumes' },
 		{ href: '/networks', Icon: Network, label: 'Networks', permission: 'networks' },
+		{ href: '/swarm', Icon: Boxes, label: 'Swarm', permission: 'swarm' },
 		{ href: '/templates', Icon: LibraryBig, label: 'Templates', permission: 'templates' },
 		{ href: '/registry', Icon: Download, label: 'Registry', permission: 'registries' },
 		{ href: '/activity', Icon: Activity, label: 'Activity', permission: 'activity' },

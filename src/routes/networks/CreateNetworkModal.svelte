@@ -90,6 +90,26 @@
 	let error = $state('');
 	let errors = $state<{ name?: string; parentInterface?: string; subnet?: string }>({});
 
+	// Overlay networking only works on a swarm-active daemon - only offer it there.
+	let swarmActive = $state(false);
+	const visibleDrivers = $derived(NETWORK_DRIVERS.filter((d) => d.value !== 'overlay' || swarmActive));
+
+	async function checkSwarmStatus() {
+		try {
+			const envId = $currentEnvironment?.id;
+			const response = await fetch(appendEnvParam('/api/swarm', envId));
+			if (!response.ok) { swarmActive = false; return; }
+			const status = await response.json();
+			swarmActive = !!status.active;
+		} catch {
+			swarmActive = false;
+		}
+		// Driver became unavailable (env switched away from swarm while overlay was selected)
+		if (driver === 'overlay' && !swarmActive) {
+			driver = 'bridge';
+		}
+	}
+
 	// Generic list helpers to reduce repetitive code
 	function addItem(list: KeyValue[]): KeyValue[] {
 		return [...list, { key: '', value: '' }];
@@ -251,7 +271,7 @@
 	}
 </script>
 
-<Dialog.Root bind:open onOpenChange={(isOpen) => { if (isOpen) focusFirstInput(); else handleClose(); }}>
+<Dialog.Root bind:open onOpenChange={(isOpen) => { if (isOpen) { focusFirstInput(); checkSwarmStatus(); } else { handleClose(); } }}>
 	<Dialog.Content class="max-w-3xl max-h-[90vh] overflow-y-auto">
 		<Dialog.Header>
 			<Dialog.Title class="flex items-center gap-2">
@@ -312,11 +332,11 @@
 								{:else}
 									<CircleOff class="w-4 h-4 mr-2 text-muted-foreground" />
 								{/if}
-								{NETWORK_DRIVERS.find(d => d.value === driver)?.label || 'Select driver'}
+								{visibleDrivers.find(d => d.value === driver)?.label || 'Select driver'}
 							</span>
 						</Select.Trigger>
 						<Select.Content>
-							{#each NETWORK_DRIVERS as d}
+							{#each visibleDrivers as d}
 								<Select.Item value={d.value} label={d.label}>
 									{#snippet children()}
 										<div class="flex items-center">
@@ -343,6 +363,9 @@
 							{/each}
 						</Select.Content>
 					</Select.Root>
+					{#if !swarmActive}
+						<p class="text-xs text-muted-foreground">Overlay networking is only available once this environment is part of a Docker Swarm cluster.</p>
+					{/if}
 				</div>
 
 				{#if needsParentConfig}

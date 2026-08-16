@@ -1,8 +1,43 @@
 import { json } from '@sveltejs/kit';
 import { removeStack, ComposeFileNotFoundError } from '$lib/server/stacks';
+import { setStackDeployMode } from '$lib/server/db';
 import { authorize } from '$lib/server/authorize';
 import { auditStack } from '$lib/server/audit';
 import type { RequestHandler } from './$types';
+
+export const PATCH: RequestHandler = async (event) => {
+	const { params, url, request, cookies } = event;
+	const auth = await authorize(cookies);
+
+	const envId = url.searchParams.get('env');
+	const envIdNum = envId ? parseInt(envId) : undefined;
+
+	if (auth.authEnabled && !(await auth.can('stacks', 'edit', envIdNum))) {
+		return json({ error: 'Permission denied' }, { status: 403 });
+	}
+
+	if (envIdNum && auth.isEnterprise && !(await auth.canAccessEnvironment(envIdNum))) {
+		return json({ error: 'Access denied to this environment' }, { status: 403 });
+	}
+
+	try {
+		const stackName = decodeURIComponent(params.name);
+		const body = await request.json();
+
+		if (body.deployMode !== undefined) {
+			if (body.deployMode !== 'compose' && body.deployMode !== 'swarm') {
+				return json({ error: 'deployMode must be "compose" or "swarm"' }, { status: 400 });
+			}
+			await setStackDeployMode(stackName, envIdNum ?? null, body.deployMode);
+			await auditStack(event, 'update', stackName, envIdNum, { deployMode: body.deployMode });
+		}
+
+		return json({ success: true });
+	} catch (error) {
+		console.error('Error updating stack settings:', error);
+		return json({ error: 'Failed to update stack settings' }, { status: 500 });
+	}
+};
 
 export const DELETE: RequestHandler = async (event) => {
 	const { params, url, cookies } = event;

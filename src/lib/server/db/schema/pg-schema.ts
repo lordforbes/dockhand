@@ -360,6 +360,8 @@ export const stackSources = pgTable('stack_sources', {
 	// Names (no values) of secret keys injected from the bound provider on the last
 	// deploy, so container inspect can mask them without a live provider call.
 	injectedSecretKeys: text('injected_secret_keys'),
+	// 'compose' (docker compose up/down, default) or 'swarm' (docker stack deploy/rm)
+	deployMode: text('deploy_mode').notNull().default('compose'),
 	createdAt: timestamp('created_at', { mode: 'string' }).defaultNow(),
 	updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow()
 }, (table) => ({

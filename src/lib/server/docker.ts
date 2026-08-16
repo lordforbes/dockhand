@@ -4482,6 +4482,390 @@ export async function disconnectContainerFromNetwork(
 	await drainResponse(response);
 }
 
+// ============================================================================
+// Swarm operations
+// ============================================================================
+
+// --- Swarm cluster state ---
+
+export interface SwarmStatus {
+	active: boolean;
+	isManager: boolean;
+	nodeId: string | null;
+	nodeAddr: string | null;
+	error: string | null;
+	managers: number;
+	nodes: number;
+	clusterId: string | null;
+}
+
+export async function getSwarmStatus(envId?: number | null): Promise<SwarmStatus> {
+	const info: any = await getDockerInfo(envId);
+	const swarm = info?.Swarm || {};
+	const state = swarm.LocalNodeState || 'inactive';
+	return {
+		active: state !== 'inactive' && state !== 'locked',
+		isManager: !!swarm.ControlAvailable,
+		nodeId: swarm.NodeID || null,
+		nodeAddr: swarm.NodeAddr || null,
+		error: swarm.Error || null,
+		managers: swarm.Managers ?? 0,
+		nodes: swarm.Nodes ?? 0,
+		clusterId: swarm.Cluster?.ID || null
+	};
+}
+
+export interface SwarmInitOptions {
+	listenAddr?: string;
+	advertiseAddr: string;
+	dataPathAddr?: string;
+	forceNewCluster?: boolean;
+}
+
+export async function initSwarm(options: SwarmInitOptions, envId?: number | null): Promise<string> {
+	const body = {
+		ListenAddr: options.listenAddr || '0.0.0.0:2377',
+		AdvertiseAddr: options.advertiseAddr,
+		DataPathAddr: options.dataPathAddr,
+		ForceNewCluster: options.forceNewCluster || false
+	};
+	return dockerJsonRequest<string>('/swarm/init', {
+		method: 'POST',
+		body: JSON.stringify(body)
+	}, envId);
+}
+
+export interface SwarmJoinOptions {
+	remoteAddrs: string[];
+	joinToken: string;
+	listenAddr?: string;
+	advertiseAddr?: string;
+}
+
+export async function joinSwarm(options: SwarmJoinOptions, envId?: number | null): Promise<void> {
+	const body = {
+		ListenAddr: options.listenAddr || '0.0.0.0:2377',
+		AdvertiseAddr: options.advertiseAddr,
+		RemoteAddrs: options.remoteAddrs,
+		JoinToken: options.joinToken
+	};
+	const response = await dockerFetch('/swarm/join', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(body)
+	}, envId);
+	await assertDockerResponse(response);
+}
+
+export async function leaveSwarm(force = false, envId?: number | null): Promise<void> {
+	const response = await dockerFetch(`/swarm/leave?force=${force}`, { method: 'POST' }, envId);
+	await assertDockerResponse(response);
+}
+
+export async function getSwarmJoinTokens(envId?: number | null): Promise<{ worker: string; manager: string }> {
+	const swarm = await dockerJsonRequest<any>('/swarm', {}, envId);
+	return {
+		worker: swarm.JoinTokens?.Worker || '',
+		manager: swarm.JoinTokens?.Manager || ''
+	};
+}
+
+// --- Nodes ---
+
+export interface SwarmNodeInfo {
+	id: string;
+	hostname: string;
+	role: string;
+	availability: string;
+	state: string;
+	isLeader: boolean;
+	address: string;
+	engineVersion: string;
+	labels: { [key: string]: string };
+	version: number;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export async function listNodes(envId?: number | null): Promise<SwarmNodeInfo[]> {
+	const nodes = await dockerJsonRequest<any[]>('/nodes', {}, envId);
+	return nodes.map((node: any) => ({
+		id: node.ID,
+		hostname: node.Description?.Hostname || '',
+		role: node.Spec?.Role || 'worker',
+		availability: node.Spec?.Availability || 'active',
+		state: node.Status?.State || 'unknown',
+		isLeader: !!node.ManagerStatus?.Leader,
+		address: node.Status?.Addr || node.ManagerStatus?.Addr || '',
+		engineVersion: node.Description?.Engine?.EngineVersion || '',
+		labels: node.Spec?.Labels || {},
+		version: node.Version?.Index || 0,
+		createdAt: node.CreatedAt,
+		updatedAt: node.UpdatedAt
+	}));
+}
+
+export async function inspectNode(id: string, envId?: number | null): Promise<any> {
+	return dockerJsonRequest(`/nodes/${id}`, {}, envId);
+}
+
+export interface UpdateNodeOptions {
+	name?: string;
+	role?: 'manager' | 'worker';
+	availability?: 'active' | 'pause' | 'drain';
+	labels?: Record<string, string>;
+}
+
+export async function updateNode(
+	id: string,
+	spec: UpdateNodeOptions,
+	version: number,
+	envId?: number | null
+): Promise<void> {
+	const body: any = {
+		Role: spec.role,
+		Availability: spec.availability,
+		Labels: spec.labels || {}
+	};
+	if (spec.name) body.Name = spec.name;
+
+	const response = await dockerFetch(`/nodes/${id}/update?version=${version}`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(body)
+	}, envId);
+	await assertDockerResponse(response);
+}
+
+export async function removeNode(id: string, force = false, envId?: number | null): Promise<void> {
+	const response = await dockerFetch(`/nodes/${id}?force=${force}`, { method: 'DELETE' }, envId);
+	await assertDockerResponse(response, 404);
+}
+
+// --- Services ---
+
+export interface SwarmServiceInfo {
+	id: string;
+	name: string;
+	image: string;
+	mode: 'replicated' | 'global';
+	replicas: number | null;
+	createdAt: string;
+	updatedAt: string;
+	version: number;
+	labels: { [key: string]: string };
+}
+
+export async function listServices(envId?: number | null): Promise<SwarmServiceInfo[]> {
+	const services = await dockerJsonRequest<any[]>('/services', {}, envId);
+	return services.map((service: any) => {
+		const mode = service.Spec?.Mode || {};
+		return {
+			id: service.ID,
+			name: service.Spec?.Name || '',
+			image: service.Spec?.TaskTemplate?.ContainerSpec?.Image || '',
+			mode: mode.Global ? 'global' : 'replicated',
+			replicas: mode.Replicated?.Replicas ?? null,
+			createdAt: service.CreatedAt,
+			updatedAt: service.UpdatedAt,
+			version: service.Version?.Index || 0,
+			labels: service.Spec?.Labels || {}
+		};
+	});
+}
+
+export async function inspectService(id: string, envId?: number | null): Promise<any> {
+	return dockerJsonRequest(`/services/${id}`, {}, envId);
+}
+
+/**
+ * `spec` mirrors the Docker Engine API's ServiceSpec wire format (PascalCase)
+ * directly, rather than a redundant camelCase mirror type, since ServiceSpec has
+ * ~30 nested optional fields (TaskTemplate, Mode, EndpointSpec, Networks, ...)
+ * that callers build directly for whichever fields the UI exposes.
+ */
+export async function createService(spec: Record<string, any>, envId?: number | null): Promise<{ ID: string }> {
+	return dockerJsonRequest('/services/create', {
+		method: 'POST',
+		body: JSON.stringify(spec)
+	}, envId);
+}
+
+export async function updateService(
+	id: string,
+	spec: Record<string, any>,
+	version: number,
+	envId?: number | null
+): Promise<void> {
+	const response = await dockerFetch(`/services/${id}/update?version=${version}`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(spec)
+	}, envId);
+	await assertDockerResponse(response);
+}
+
+export async function removeService(id: string, envId?: number | null): Promise<void> {
+	const response = await dockerFetch(`/services/${id}`, { method: 'DELETE' }, envId);
+	await assertDockerResponse(response);
+}
+
+/** Buffered service logs, mirroring getContainerLogs's non-streaming idiom. */
+export async function getServiceLogs(
+	id: string,
+	tail: number | 'all' = 100,
+	envId?: number | null,
+	since?: string
+): Promise<string> {
+	let query = `stdout=true&stderr=true&timestamps=true&tail=${tail}`;
+	if (since) query += `&since=${since}`;
+
+	const response = await dockerFetch(`/services/${id}/logs?${query}`, {}, envId);
+	if (!response.ok) await throwDockerError(response);
+
+	const buffer = Buffer.from(await response.arrayBuffer());
+	return demuxDockerStream(buffer) as string;
+}
+
+// --- Tasks ---
+
+export interface SwarmTaskInfo {
+	id: string;
+	serviceId: string;
+	nodeId: string;
+	slot: number | null;
+	image: string;
+	desiredState: string;
+	state: string;
+	message: string;
+	timestamp: string;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export async function listTasks(filters?: Record<string, string[]>, envId?: number | null): Promise<SwarmTaskInfo[]> {
+	const query = filters ? `?filters=${encodeURIComponent(JSON.stringify(filters))}` : '';
+	const tasks = await dockerJsonRequest<any[]>(`/tasks${query}`, {}, envId);
+	return tasks.map((task: any) => ({
+		id: task.ID,
+		serviceId: task.ServiceID,
+		nodeId: task.NodeID || '',
+		slot: task.Slot ?? null,
+		image: task.Spec?.ContainerSpec?.Image || '',
+		desiredState: task.DesiredState || '',
+		state: task.Status?.State || '',
+		message: task.Status?.Message || '',
+		timestamp: task.Status?.Timestamp || '',
+		createdAt: task.CreatedAt,
+		updatedAt: task.UpdatedAt
+	}));
+}
+
+export async function inspectTask(id: string, envId?: number | null): Promise<any> {
+	return dockerJsonRequest(`/tasks/${id}`, {}, envId);
+}
+
+// --- Secrets ---
+
+export interface SwarmSecretInfo {
+	id: string;
+	name: string;
+	labels: { [key: string]: string };
+	version: number;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export async function listSecrets(envId?: number | null): Promise<SwarmSecretInfo[]> {
+	const secrets = await dockerJsonRequest<any[]>('/secrets', {}, envId);
+	return secrets.map((secret: any) => ({
+		id: secret.ID,
+		name: secret.Spec?.Name || '',
+		labels: secret.Spec?.Labels || {},
+		version: secret.Version?.Index || 0,
+		createdAt: secret.CreatedAt,
+		updatedAt: secret.UpdatedAt
+	}));
+}
+
+export async function inspectSecret(id: string, envId?: number | null): Promise<any> {
+	return dockerJsonRequest(`/secrets/${id}`, {}, envId);
+}
+
+export interface CreateSecretOptions {
+	name: string;
+	/** Plain-text secret content; base64-encoded onto the wire, never persisted by dockhand. */
+	data: string;
+	labels?: Record<string, string>;
+}
+
+export async function createSecret(options: CreateSecretOptions, envId?: number | null): Promise<{ ID: string }> {
+	const body = {
+		Name: options.name,
+		Labels: options.labels || {},
+		Data: Buffer.from(options.data, 'utf-8').toString('base64')
+	};
+	return dockerJsonRequest('/secrets/create', {
+		method: 'POST',
+		body: JSON.stringify(body)
+	}, envId);
+}
+
+export async function removeSecret(id: string, envId?: number | null): Promise<void> {
+	const response = await dockerFetch(`/secrets/${id}`, { method: 'DELETE' }, envId);
+	await assertDockerResponse(response);
+}
+
+// --- Configs ---
+
+export interface SwarmConfigInfo {
+	id: string;
+	name: string;
+	labels: { [key: string]: string };
+	version: number;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export async function listConfigs(envId?: number | null): Promise<SwarmConfigInfo[]> {
+	const configs = await dockerJsonRequest<any[]>('/configs', {}, envId);
+	return configs.map((config: any) => ({
+		id: config.ID,
+		name: config.Spec?.Name || '',
+		labels: config.Spec?.Labels || {},
+		version: config.Version?.Index || 0,
+		createdAt: config.CreatedAt,
+		updatedAt: config.UpdatedAt
+	}));
+}
+
+export async function inspectConfig(id: string, envId?: number | null): Promise<any> {
+	return dockerJsonRequest(`/configs/${id}`, {}, envId);
+}
+
+export interface CreateConfigOptions {
+	name: string;
+	data: string;
+	labels?: Record<string, string>;
+}
+
+export async function createConfig(options: CreateConfigOptions, envId?: number | null): Promise<{ ID: string }> {
+	const body = {
+		Name: options.name,
+		Labels: options.labels || {},
+		Data: Buffer.from(options.data, 'utf-8').toString('base64')
+	};
+	return dockerJsonRequest('/configs/create', {
+		method: 'POST',
+		body: JSON.stringify(body)
+	}, envId);
+}
+
+export async function removeConfig(id: string, envId?: number | null): Promise<void> {
+	const response = await dockerFetch(`/configs/${id}`, { method: 'DELETE' }, envId);
+	await assertDockerResponse(response);
+}
+
 // Container exec operations
 export interface ExecOptions {
 	containerId: string;

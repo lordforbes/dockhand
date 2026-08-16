@@ -69,6 +69,10 @@
 	let backupTally = $state<{ ok: number; failed: number }>({ ok: 0, failed: 0 });
 	let showConfirmClose = $state(false);
 	let editorTheme = $state<'light' | 'dark'>('dark');
+	// 'compose' (docker compose, default) or 'swarm' (docker stack deploy). Edit-mode only —
+	// persisted immediately on toggle via PATCH /api/stacks/[name], not part of the save flow.
+	let deployMode = $state<'compose' | 'swarm'>('compose');
+	let deployModeSaving = $state(false);
 	// Ref to the embedded backup panel so close can check its inline form for unsaved edits.
 	let backupPanelRef = $state<BackupPanel | undefined>(undefined);
 
@@ -933,6 +937,7 @@
 					const sourceMap = await sourcesRes.json();
 					const source = sourceMap?.[stackName];
 					formSecretProviderId = source?.secretProviderId ?? null;
+					deployMode = source?.deployMode === 'swarm' ? 'swarm' : 'compose';
 				}
 			} catch (e) {
 				console.warn('Failed to load stack source for secret provider binding:', e);
@@ -1017,6 +1022,30 @@
 	function toggleEditorTheme() {
 		editorTheme = editorTheme === 'light' ? 'dark' : 'light';
 		localStorage.setItem('dockhand-editor-theme', editorTheme);
+	}
+
+	async function toggleDeployMode() {
+		if (mode !== 'edit' || !stackName || deployModeSaving) return;
+		const next = deployMode === 'swarm' ? 'compose' : 'swarm';
+		deployModeSaving = true;
+		try {
+			const envId = $currentEnvironment?.id ?? null;
+			const response = await fetch(appendEnvParam(`/api/stacks/${encodeURIComponent(stackName)}`, envId), {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ deployMode: next })
+			});
+			if (!response.ok) {
+				const data = await response.json().catch(() => ({}));
+				throw new Error(data.error || 'Failed to update deploy mode');
+			}
+			deployMode = next;
+			toast.success(`Deploy mode set to ${next === 'swarm' ? 'Swarm' : 'Compose'}`);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Failed to update deploy mode');
+		} finally {
+			deployModeSaving = false;
+		}
 	}
 
 	function handleGraphContentChange(newContent: string) {
@@ -1742,6 +1771,27 @@
 									}}
 								/>
 							</div>
+							<!-- Deploy mode toggle (edit mode, non-readonly stacks only) -->
+							{#if mode === 'edit' && !readonly}
+								<div class="flex items-center px-2 shrink-0">
+									<Tooltip.Root>
+										<Tooltip.Trigger>
+											<button
+												type="button"
+												onclick={toggleDeployMode}
+												disabled={deployModeSaving}
+												class="flex items-center gap-1.5 text-xs px-2 py-1 rounded transition-colors {deployMode === 'swarm' ? 'bg-violet-100 text-violet-800 dark:bg-violet-900 dark:text-violet-200' : 'text-zinc-400 dark:text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-700'}"
+											>
+												<Box class="w-3.5 h-3.5" />
+												{deployMode === 'swarm' ? 'Swarm' : 'Compose'}
+											</button>
+										</Tooltip.Trigger>
+										<Tooltip.Content>
+											{deployMode === 'swarm' ? "Deployed via `docker stack deploy`. Click to switch to Compose." : "Deployed via `docker compose`. Click to switch to Swarm (docker stack deploy)."}
+										</Tooltip.Content>
+									</Tooltip.Root>
+								</div>
+							{/if}
 							<!-- Theme toggle -->
 							<div class="flex items-center px-2 shrink-0">
 								<button

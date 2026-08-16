@@ -33,7 +33,8 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 			stackDir: result.stackDir,
 			composePath: result.composePath,
 			envPath: result.envPath,
-			suggestedEnvPath: result.suggestedEnvPath
+			suggestedEnvPath: result.suggestedEnvPath,
+			deployMode: result.deployMode
 		});
 	} catch (error: any) {
 		console.error(`Error getting compose file for stack ${name}:`, error);

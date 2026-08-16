@@ -192,6 +192,104 @@ export async function auditNetwork(
 }
 
 /**
+ * Helper for swarm cluster actions (init/join/leave)
+ */
+export async function auditSwarm(
+	event: RequestEvent,
+	action: AuditAction,
+	environmentId?: number | null,
+	details?: any
+): Promise<void> {
+	await audit(event, action, 'swarm', {
+		entityId: null,
+		entityName: null,
+		environmentId,
+		description: `Swarm ${action}`,
+		details
+	});
+}
+
+/**
+ * Helper for swarm node actions
+ */
+export async function auditSwarmNode(
+	event: RequestEvent,
+	action: AuditAction,
+	nodeId: string,
+	nodeName: string,
+	environmentId?: number | null,
+	details?: any
+): Promise<void> {
+	await audit(event, action, 'swarm_node', {
+		entityId: nodeId,
+		entityName: nodeName,
+		environmentId,
+		description: `Swarm node ${nodeName} ${action}`,
+		details
+	});
+}
+
+/**
+ * Helper for swarm service actions
+ */
+export async function auditSwarmService(
+	event: RequestEvent,
+	action: AuditAction,
+	serviceId: string,
+	serviceName: string,
+	environmentId?: number | null,
+	details?: any
+): Promise<void> {
+	await audit(event, action, 'swarm_service', {
+		entityId: serviceId,
+		entityName: serviceName,
+		environmentId,
+		description: `Swarm service ${serviceName} ${action}`,
+		details
+	});
+}
+
+/**
+ * Helper for swarm secret actions
+ */
+export async function auditSwarmSecret(
+	event: RequestEvent,
+	action: AuditAction,
+	secretId: string,
+	secretName: string,
+	environmentId?: number | null,
+	details?: any
+): Promise<void> {
+	await audit(event, action, 'swarm_secret', {
+		entityId: secretId,
+		entityName: secretName,
+		environmentId,
+		description: `Swarm secret ${secretName} ${action}`,
+		details
+	});
+}
+
+/**
+ * Helper for swarm config actions
+ */
+export async function auditSwarmConfig(
+	event: RequestEvent,
+	action: AuditAction,
+	configId: string,
+	configName: string,
+	environmentId?: number | null,
+	details?: any
+): Promise<void> {
+	await audit(event, action, 'swarm_config', {
+		entityId: configId,
+		entityName: configName,
+		environmentId,
+		description: `Swarm config ${configName} ${action}`,
+		details
+	});
+}
+
+/**
  * Helper for user actions
  */
 export async function auditUser(

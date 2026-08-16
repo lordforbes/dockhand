@@ -14,7 +14,7 @@
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import * as Popover from '$lib/components/ui/popover';
 	import MultiSelectFilter from '$lib/components/MultiSelectFilter.svelte';
-	import { Play, Square, Trash2, Plus, ArrowBigDown, Search, Pencil, ExternalLink, GitBranch, RefreshCw, Loader2, FileCode, FileText, FileOutput, Box, RotateCcw, ScrollText, Terminal, Eye, Network, HardDrive, Heart, HeartPulse, HeartOff, ChevronsUpDown, ChevronsDownUp, Rocket, AlertTriangle, X, Layers, Pause, CircleDashed, Skull, FolderOpen, Variable, Clock, RotateCw, Import, Ship, Cable, LayoutPanelLeft, Rows3, GripVertical, Globe, CircleArrowUp, NotepadText } from 'lucide-svelte';
+	import { Play, Square, Trash2, Plus, ArrowBigDown, Search, Pencil, ExternalLink, GitBranch, RefreshCw, Loader2, FileCode, FileText, FileOutput, Box, RotateCcw, ScrollText, Terminal, Eye, Network, HardDrive, Heart, HeartPulse, HeartOff, ChevronsUpDown, ChevronsDownUp, Rocket, AlertTriangle, X, Layers, Pause, CircleDashed, Skull, FolderOpen, Variable, Clock, RotateCw, Import, Ship, Cable, LayoutPanelLeft, Rows3, GripVertical, Globe, CircleArrowUp, NotepadText, Boxes } from 'lucide-svelte';
 	import { formatPorts } from '$lib/utils/port-format';
 	import { parseCustomUrl } from '$lib/utils/custom-url';
 	import { extractTraefikUrls } from '$lib/utils/traefik-urls';
@@ -57,7 +57,7 @@
 	// rate-limited), with the error text for the tooltip — session-only (#1255).
 	let failedUpdateCheckIds = $state<Set<string>>(new Set());
 	let failedUpdateCheckErrors = $state<Map<string, string>>(new Map());
-	let stackSources = $state<Record<string, { sourceType: string; composePath?: string | null; repository?: any; gitStack?: any }>>({});
+	let stackSources = $state<Record<string, { sourceType: string; composePath?: string | null; repository?: any; gitStack?: any; deployMode?: string }>>({});
 	let stackEnvVarCounts = $state<Record<string, number>>({});
 	let gitStacks = $state<any[]>([]);
 	let gitRepositories = $state<any[]>([]);
@@ -1768,35 +1768,50 @@
 					{/if}
 					</span>
 				{:else if column.id === 'source'}
-					{#if source.sourceType === 'git'}
-						<GitSourceBadge {source} />
-					{:else if source.sourceType === 'internal'}
-						<Tooltip.Root>
-							<Tooltip.Trigger>
-								<span
-									class="inline-flex items-center justify-center gap-1 text-xs px-1.5 py-0.5 rounded-sm bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 shadow-sm min-w-[5.5rem]"
-								>
-									<FileCode class="w-3 h-3" />
-									Internal
-								</span>
-							</Tooltip.Trigger>
-							<Tooltip.Content>Managed by Dockhand</Tooltip.Content>
-						</Tooltip.Root>
-					{:else}
-						<Tooltip.Root>
-							<Tooltip.Trigger>
-								<span
-									class="inline-flex items-center justify-center gap-1 text-xs px-1.5 py-0.5 rounded-sm bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200 shadow-sm min-w-[5.5rem]"
-								>
-									<ExternalLink class="w-3 h-3" />
-									Untracked
-								</span>
-							</Tooltip.Trigger>
-							<Tooltip.Content>
-								Compose file location unknown. Click the stack name or edit button to locate it.
-							</Tooltip.Content>
-						</Tooltip.Root>
-					{/if}
+					<div class="flex items-center gap-1">
+						{#if source.sourceType === 'git'}
+							<GitSourceBadge {source} />
+						{:else if source.sourceType === 'internal'}
+							<Tooltip.Root>
+								<Tooltip.Trigger>
+									<span
+										class="inline-flex items-center justify-center gap-1 text-xs px-1.5 py-0.5 rounded-sm bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 shadow-sm min-w-[5.5rem]"
+									>
+										<FileCode class="w-3 h-3" />
+										Internal
+									</span>
+								</Tooltip.Trigger>
+								<Tooltip.Content>Managed by Dockhand</Tooltip.Content>
+							</Tooltip.Root>
+						{:else}
+							<Tooltip.Root>
+								<Tooltip.Trigger>
+									<span
+										class="inline-flex items-center justify-center gap-1 text-xs px-1.5 py-0.5 rounded-sm bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200 shadow-sm min-w-[5.5rem]"
+									>
+										<ExternalLink class="w-3 h-3" />
+										Untracked
+									</span>
+								</Tooltip.Trigger>
+								<Tooltip.Content>
+									Compose file location unknown. Click the stack name or edit button to locate it.
+								</Tooltip.Content>
+							</Tooltip.Root>
+						{/if}
+						{#if source.deployMode === 'swarm'}
+							<Tooltip.Root>
+								<Tooltip.Trigger>
+									<span
+										class="inline-flex items-center justify-center gap-1 text-xs px-1.5 py-0.5 rounded-sm bg-violet-100 text-violet-800 dark:bg-violet-900 dark:text-violet-200 shadow-sm"
+									>
+										<Boxes class="w-3 h-3" />
+										Swarm
+									</span>
+								</Tooltip.Trigger>
+								<Tooltip.Content>Deployed via `docker stack deploy`, not `docker compose`</Tooltip.Content>
+							</Tooltip.Root>
+						{/if}
+					</div>
 				{:else if column.id === 'location'}
 					{#if source.composePath}
 						{@const dirPath = source.composePath.replace(/\/[^/]+$/, '')}
@@ -2049,6 +2064,13 @@
 								<div class="p-1">
 									<Loader2 class="grid-action-icon animate-spin text-muted-foreground" />
 								</div>
+							{:else if source.deployMode === 'swarm'}
+								<span
+									class="p-1 text-muted-foreground opacity-50 cursor-default inline-flex items-center"
+									title="Swarm-mode stacks don't support Start/Stop/Restart — use Deploy to update or Remove to tear down"
+								>
+									<Square class="grid-action-icon" />
+								</span>
 							{:else if stack.status !== 'running' && stack.status !== 'partial' && stack.status !== 'restarting'}
 								{#if $canAccess('stacks', 'start')}
 									<button

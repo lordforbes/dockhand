@@ -357,6 +357,8 @@ export const stackSources = sqliteTable('stack_sources', {
 	// Names (no values) of secret keys injected from the bound provider on the last
 	// deploy, so container inspect can mask them without a live provider call.
 	injectedSecretKeys: text('injected_secret_keys'),
+	// 'compose' (docker compose up/down, default) or 'swarm' (docker stack deploy/rm)
+	deployMode: text('deploy_mode').notNull().default('compose'),
 	createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
 	updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`)
 }, (table) => ({

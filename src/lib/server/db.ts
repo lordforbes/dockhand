@@ -1334,6 +1334,7 @@ export interface Permissions {
 	schedules: string[];
 	secrets: string[];
 	backups: string[];
+	swarm: string[];
 }
 
 export interface AuthSettingsData {
@@ -2917,6 +2918,7 @@ export async function getAllAutoUpdateGitStacks(): Promise<GitStackWithRepo[]> {
 // =============================================================================
 
 export type StackSourceType = 'external' | 'internal' | 'git';
+export type StackDeployMode = 'compose' | 'swarm';
 
 export interface StackSourceData {
 	id: number;
@@ -2928,6 +2930,7 @@ export interface StackSourceData {
 	composePath: string | null;
 	envPath: string | null;
 	secretProviderId: number | null;
+	deployMode: StackDeployMode;
 	createdAt: string;
 	updatedAt: string;
 }
@@ -3131,6 +3134,25 @@ export async function getStackInjectedSecretKeys(
 	const source = await getStackSource(stackName, environmentId ?? null);
 	const raw = (source as { injectedSecretKeys?: string | null } | null)?.injectedSecretKeys;
 	return parseInjectedSecretKeys(raw);
+}
+
+/**
+ * Set a stack's deploy mode ('compose' = docker compose, 'swarm' = docker stack deploy).
+ * No-op if the stack has no source row.
+ */
+export async function setStackDeployMode(
+	stackName: string,
+	environmentId: number | null | undefined,
+	deployMode: StackDeployMode
+): Promise<void> {
+	const existing = await getStackSource(stackName, environmentId ?? null);
+	if (!existing) return;
+	await db.update(stackSources)
+		.set({
+			deployMode,
+			updatedAt: new Date().toISOString()
+		})
+		.where(eq(stackSources.id, existing.id));
 }
 
 export async function deleteStackSource(stackName: string, environmentId?: number | null): Promise<boolean> {
@@ -3468,13 +3490,14 @@ export type AuditAction =
 	| 'create' | 'update' | 'delete' | 'start' | 'stop' | 'restart' | 'down'
 	| 'pause' | 'unpause' | 'pull' | 'push' | 'prune' | 'login'
 	| 'logout' | 'view' | 'exec' | 'connect' | 'disconnect' | 'deploy' | 'sync' | 'rename' | 'webhook'
-	| 'backup' | 'restore' | 'verify';
+	| 'backup' | 'restore' | 'verify' | 'join' | 'leave';
 
 export type AuditEntityType =
 	| 'container' | 'image' | 'stack' | 'volume' | 'network'
 	| 'user' | 'role' | 'settings' | 'environment' | 'registry' | 'git_repository' | 'git_credential'
 	| 'config_set' | 'notification' | 'oidc_provider' | 'ldap_config' | 'git_stack' | 'api_token'
-	| 'secret_provider' | 'backup_destination' | 'backup_config';
+	| 'secret_provider' | 'backup_destination' | 'backup_config'
+	| 'swarm' | 'swarm_node' | 'swarm_service' | 'swarm_secret' | 'swarm_config';
 
 export interface AuditLogData {
 	id: number;

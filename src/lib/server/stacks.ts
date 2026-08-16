@@ -41,7 +41,7 @@ import {
 	setStackInjectedSecretKeys
 } from './db';
 import { getProvider } from './secretproviders';
-import { resolveComposeDockerHost, buildComposeBaseArgs } from './compose-docker-args';
+import { resolveComposeDockerHost, buildComposeBaseArgs, buildSwarmStackBaseArgs } from './compose-docker-args';
 import { unregisterSchedule } from './scheduler';
 import { sendEventNotification } from './notifications';
 import { deleteGitStackFiles, parseEnvFileContent } from './git';
@@ -69,6 +69,9 @@ interface TlsConfig {
  * Stack source types
  */
 export type StackSourceType = 'internal' | 'git' | 'external';
+
+/** 'compose' (docker compose up/down, default) or 'swarm' (docker stack deploy/rm) */
+export type StackDeployMode = 'compose' | 'swarm';
 
 /**
  * Stack operation result
@@ -506,6 +509,8 @@ export interface GetComposeFileResult {
 	suggestedEnvPath?: string;
 	/** Stack source type (internal/git/external), from the stack_sources lookup already done here */
 	sourceType?: StackSourceType;
+	/** 'compose' (default) or 'swarm', from the stack_sources lookup already done here */
+	deployMode?: StackDeployMode;
 }
 
 /**
@@ -566,7 +571,8 @@ export async function getStackComposeFile(
 				composePath: source.composePath,
 				envPath: source.envPath,
 				suggestedEnvPath,
-				sourceType: source.sourceType
+				sourceType: source.sourceType,
+				deployMode: source.deployMode
 			};
 		} catch (error) {
 			const message = error instanceof Error ? error.message : 'Unknown error';
@@ -601,7 +607,8 @@ export async function getStackComposeFile(
 					// Always return the actual resolved paths for display
 					composePath: actualComposePath,
 					envPath: envExists ? envFilePath : null,
-					sourceType: source.sourceType
+					sourceType: source.sourceType,
+					deployMode: source.deployMode
 				};
 			}
 		}
@@ -1831,6 +1838,255 @@ async function executeComposeCommand(
 	}
 }
 
+/**
+ * Execute a `docker stack deploy`/`docker stack rm` locally via child_process.spawn.
+ *
+ * Unlike `docker compose`, `docker stack deploy` has no stdin (`-c -`) support and no
+ * `--env-file` flag — interpolation variables must always go through the shell env
+ * (not just as a legacy fallback for stacks missing a .env file, as compose does), and
+ * host-path-translated content is written straight to the compose file on disk instead
+ * of piped in. Otherwise mirrors executeLocalCompose's TLS/timeout/process handling.
+ */
+async function executeSwarmStack(
+	operation: 'deploy' | 'rm',
+	stackName: string,
+	composeContent: string,
+	dockerHost?: string,
+	tlsConfig?: TlsConfig,
+	envVars?: Record<string, string>,
+	secretVars?: Record<string, string>,
+	envId?: number | null,
+	workingDir?: string,
+	customComposePath?: string
+): Promise<StackOperationResult> {
+	const logPrefix = `[SwarmStack:${stackName}]`;
+
+	let stackDir: string;
+	let composeFile: string;
+
+	if (operation === 'deploy') {
+		if (customComposePath && workingDir) {
+			stackDir = workingDir;
+			composeFile = customComposePath;
+		} else {
+			stackDir = await getStackDir(stackName, envId);
+			mkdirSync(stackDir, { recursive: true });
+			composeFile = join(stackDir, 'compose.yaml');
+			writeFileSync(composeFile, composeContent);
+		}
+	} else {
+		stackDir = (customComposePath && workingDir) ? workingDir : (await findStackDir(stackName, envId) || await getStackDir(stackName, envId));
+		composeFile = customComposePath || join(stackDir, 'compose.yaml');
+	}
+
+	const composeFileDir = dirname(composeFile);
+
+	// Host path translation: no stdin option for `stack deploy`, so translated content
+	// is written straight to the compose file on disk (only for local/socket daemons).
+	if (operation === 'deploy' && !dockerHost && getHostDataDir()) {
+		const rewriteResult = rewriteComposeVolumePaths(composeContent, composeFileDir);
+		if (rewriteResult.modified) {
+			writeFileSync(composeFile, rewriteResult.content);
+			console.log(`${logPrefix} [HostPath] Translated ${rewriteResult.changes.length} volume path(s) for Docker host`);
+		}
+	}
+
+	const spawnEnv: Record<string, string> = {
+		PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
+		HOME: process.env.HOME || '/root',
+	};
+
+	const composeDockerHost = resolveComposeDockerHost(dockerHost, process.env.DOCKER_HOST);
+
+	if (process.env.DOCKER_API_VERSION) {
+		spawnEnv.DOCKER_API_VERSION = process.env.DOCKER_API_VERSION;
+	}
+	if (process.env.DOCKER_CONFIG) {
+		spawnEnv.DOCKER_CONFIG = process.env.DOCKER_CONFIG;
+	}
+
+	// No --env-file flag exists for `docker stack deploy`; interpolation vars always
+	// go through the shell env. Secrets are never written to disk (same rule as compose).
+	if (envVars) Object.assign(spawnEnv, envVars);
+	if (secretVars) Object.assign(spawnEnv, secretVars);
+
+	let tlsCertDir: string | undefined;
+	if (tlsConfig && (tlsConfig.ca || tlsConfig.cert)) {
+		const dataDir = resolve(process.env.DATA_DIR || './data');
+		tlsCertDir = join(dataDir, 'tmp', `tls-${stackName}-${Date.now()}`);
+		mkdirSync(tlsCertDir, { recursive: true });
+		activeTlsDirs.add(tlsCertDir);
+
+		if (tlsConfig.ca) {
+			const cleanedCa = cleanPem(tlsConfig.ca);
+			if (cleanedCa) writeFileSync(join(tlsCertDir, 'ca.pem'), cleanedCa);
+		}
+		if (tlsConfig.cert) {
+			const cleanedCert = cleanPem(tlsConfig.cert);
+			if (cleanedCert) writeFileSync(join(tlsCertDir, 'cert.pem'), cleanedCert);
+		}
+		if (tlsConfig.key) {
+			const cleanedKey = cleanPem(tlsConfig.key);
+			if (cleanedKey) writeFileSync(join(tlsCertDir, 'key.pem'), cleanedKey);
+		}
+
+		spawnEnv.DOCKER_TLS = '1';
+		spawnEnv.DOCKER_CERT_PATH = tlsCertDir;
+		spawnEnv.DOCKER_TLS_VERIFY = tlsConfig.skipVerify ? '0' : '1';
+
+		console.log(`${logPrefix} TLS enabled: DOCKER_CERT_PATH=${tlsCertDir}, DOCKER_TLS_VERIFY=${spawnEnv.DOCKER_TLS_VERIFY}`);
+	}
+
+	const args = buildSwarmStackBaseArgs(composeDockerHost);
+	if (operation === 'deploy') {
+		args.push('deploy', '-c', composeFile, '--with-registry-auth', stackName);
+	} else {
+		args.push('rm', stackName);
+	}
+
+	const commandStr = args.join(' ');
+
+	console.log(`${logPrefix} ----------------------------------------`);
+	console.log(`${logPrefix} EXECUTE SWARM STACK`);
+	console.log(`${logPrefix} ----------------------------------------`);
+	console.log(`${logPrefix} Operation:`, operation);
+	console.log(`${logPrefix} Command:`, commandStr);
+	console.log(`${logPrefix} Working directory:`, composeFileDir);
+	console.log(`${logPrefix} DOCKER_HOST:`, dockerHost || '(local socket)');
+
+	if (operation === 'deploy') {
+		await loginToRegistries(dockerHost, logPrefix, spawnEnv.DOCKER_API_VERSION);
+	}
+
+	try {
+		const proc = nodeSpawn(args[0], args.slice(1), {
+			cwd: composeFileDir,
+			env: spawnEnv,
+			stdio: ['inherit', 'pipe', 'pipe']
+		});
+
+		let timedOut = false;
+		const timeoutId = setTimeout(() => {
+			timedOut = true;
+			console.log(`${logPrefix} TIMEOUT: Process exceeded ${COMPOSE_TIMEOUT_MS / 1000} seconds, sending SIGTERM`);
+			proc.kill('SIGTERM');
+			setTimeout(() => {
+				try {
+					proc.kill('SIGKILL');
+					console.log(`${logPrefix} TIMEOUT: Sent SIGKILL after grace period`);
+				} catch {
+					// Process may already be dead
+				}
+			}, COMPOSE_KILL_GRACE_MS);
+		}, COMPOSE_TIMEOUT_MS);
+
+		try {
+			const { exitCode: code, stdout, stderr } = await collectProcess(proc);
+
+			console.log(`${logPrefix} ----------------------------------------`);
+			console.log(`${logPrefix} SWARM STACK PROCESS COMPLETE`);
+			console.log(`${logPrefix} ----------------------------------------`);
+			console.log(`${logPrefix} Exit code:`, code);
+			if (stdout) console.log(`${logPrefix} STDOUT:`, stdout);
+			if (stderr) console.log(`${logPrefix} STDERR:`, stderr);
+
+			if (timedOut) {
+				return {
+					success: false,
+					output: stdout,
+					error: `docker stack ${operation} timed out after ${COMPOSE_TIMEOUT_MS / 1000} seconds.`,
+					command: commandStr
+				};
+			}
+
+			if (code === 0) {
+				return {
+					success: true,
+					output: stdout || stderr || `Stack "${stackName}" ${operation === 'deploy' ? 'deployed' : 'removed'} successfully`,
+					command: commandStr
+				};
+			}
+			return {
+				success: false,
+				output: stdout,
+				error: stderr || `docker stack ${operation} exited with code ${code}`,
+				command: commandStr
+			};
+		} finally {
+			clearTimeout(timeoutId);
+		}
+	} catch (err: any) {
+		console.log(`${logPrefix} EXCEPTION in executeSwarmStack:`, err.message);
+		return {
+			success: false,
+			output: '',
+			error: `Failed to run docker stack ${operation}: ${err.message}`,
+			command: commandStr
+		};
+	} finally {
+		if (tlsCertDir) {
+			activeTlsDirs.delete(tlsCertDir);
+			try {
+				rmSync(tlsCertDir, { recursive: true, force: true });
+			} catch {
+				// Ignore cleanup errors
+			}
+		}
+	}
+}
+
+/**
+ * Dispatch a `docker stack deploy`/`rm` to the right transport for the stack's
+ * environment, mirroring executeComposeCommand's connectionType switch. Hawser
+ * (remote-agent) environments aren't wired up for Swarm yet — they get a clear
+ * error rather than a silent no-op; only socket/direct daemons are supported.
+ */
+async function executeSwarmStackCommand(
+	operation: 'deploy' | 'rm',
+	options: ComposeCommandOptions,
+	composeContent: string,
+	envVars?: Record<string, string>,
+	secretVars?: Record<string, string>
+): Promise<StackOperationResult> {
+	const { stackName, envId, workingDir, composePath } = options;
+
+	const env = envId ? await getEnvironment(envId) : null;
+
+	if (!env) {
+		return executeSwarmStack(operation, stackName, composeContent, undefined, undefined, envVars, secretVars, envId, workingDir, composePath);
+	}
+
+	switch (env.connectionType) {
+		case 'hawser-standard':
+		case 'hawser-edge':
+			return {
+				success: false,
+				error: `Swarm stack deploy isn't supported on Hawser-connected environments yet. Use a direct or local Docker connection for "${stackName}".`
+			};
+
+		case 'direct': {
+			const port = env.port || 2375;
+			const dockerHost = `tcp://${env.host}:${port}`;
+			const tlsConfig: TlsConfig | undefined = env.protocol === 'https' ? {
+				ca: env.tlsCa || undefined,
+				cert: env.tlsCert || undefined,
+				key: env.tlsKey || undefined,
+				skipVerify: env.tlsSkipVerify ?? false
+			} : undefined;
+
+			return executeSwarmStack(operation, stackName, composeContent, dockerHost, tlsConfig, envVars, secretVars, envId, workingDir, composePath);
+		}
+
+		case 'socket':
+		default: {
+			const sock = env.socketPath && env.socketPath !== '/var/run/docker.sock'
+				? `unix://${env.socketPath}`
+				: undefined;
+			return executeSwarmStack(operation, stackName, composeContent, sock, undefined, envVars, secretVars, envId, workingDir, composePath);
+		}
+	}
+}
+
 // =============================================================================
 // STACK DISCOVERY
 // =============================================================================
@@ -2111,6 +2367,8 @@ export interface RequireComposeResult {
 	envPath?: string;
 	/** Stack source type (internal/git/external), plumbed through from getStackComposeFile to avoid a redundant getStackSource lookup in callers */
 	sourceType?: StackSourceType;
+	/** 'compose' (default) or 'swarm', plumbed through from getStackComposeFile */
+	deployMode?: StackDeployMode;
 }
 
 /**
@@ -2186,7 +2444,8 @@ export async function requireComposeFile(
 		stackDir: composeResult.stackDir,
 		composePath: composeResult.composePath ?? undefined,
 		envPath: envFilePath ?? undefined,
-		sourceType: composeResult.sourceType
+		sourceType: composeResult.sourceType,
+		deployMode: composeResult.deployMode
 	};
 }
 
@@ -2277,6 +2536,13 @@ export async function startStack(
 		return fallback;
 	}
 
+	if (result.deployMode === 'swarm') {
+		return {
+			success: false,
+			error: `Start isn't supported for Swarm-mode stacks. Services scale/restart on their own — use Deploy to push an update.`
+		};
+	}
+
 	// Git stacks need useOverrideFile to write .env.dockhand with DB overrides.
 	// sourceType is plumbed through from requireComposeFile (which already looked it up
 	// via getStackComposeFile/getStackSource) to avoid a redundant DB lookup.
@@ -2322,6 +2588,13 @@ export async function stopStack(
 		return fallback;
 	}
 
+	if (result.deployMode === 'swarm') {
+		return {
+			success: false,
+			error: `Stop isn't supported for Swarm-mode stacks. Use Remove to tear the stack down.`
+		};
+	}
+
 	// Git stacks need useOverrideFile so `.env.dockhand` (the panel vars) is passed via
 	// --env-file; otherwise `docker compose stop` re-interpolates ${VAR:?} in the compose
 	// file with the panel vars missing and errors (#1313). Matches startStack/deployStack.
@@ -2365,6 +2638,13 @@ export async function restartStack(
 		return withContainerFallback(stackName, envId, 'restart');
 	}
 
+	if (result.deployMode === 'swarm') {
+		return {
+			success: false,
+			error: `Restart isn't supported for Swarm-mode stacks. Use Deploy to push an update (forces a rolling restart).`
+		};
+	}
+
 	// Git stacks need useOverrideFile to write .env.dockhand with DB overrides.
 	// Non-git stacks still pass nonSecretVars for legacy support (stacks without
 	// .env files on disk get vars injected via shell env at executeLocalCompose).
@@ -2404,6 +2684,19 @@ export async function downStack(
 	if (!result.success) {
 		// No compose file - down is the same as stop
 		return withContainerFallback(stackName, envId, 'stop');
+	}
+
+	if (result.deployMode === 'swarm') {
+		// `docker stack rm` has no --volumes flag: Swarm never deletes volumes on removal
+		// (they're node-local and may be in use by other services), so removeVolumes is
+		// a compose-only concept here.
+		return executeSwarmStackCommand(
+			'rm',
+			{ stackName, envId, workingDir: result.stackDir, composePath: result.composePath },
+			result.content!,
+			result.nonSecretVars,
+			result.secretVars
+		);
 	}
 
 	// useOverrideFile for git stacks — same reason as stopStack (#1313).
@@ -2523,24 +2816,32 @@ export async function removeStack(
 				}
 			}
 
-			const downResult = await executeComposeCommand(
-				'down',
-				{
-					stackName,
-					envId,
-					removeVolumes,
-					workingDir: composeResult.stackDir,
-					composePath: composeResult.composePath ?? undefined,
-					envPath: composeResult.envPath ?? undefined,
-					useOverrideFile: isGitStack,
-					// Full stack removal: the Hawser agent cleans its stack dir (#1162)
-					removeFiles: true,
-					filesToDelete: removalFiles
-				},
-				composeResult.content!,
-				envVars,
-				secretVars
-			);
+			const downResult = composeResult.deployMode === 'swarm'
+				? await executeSwarmStackCommand(
+					'rm',
+					{ stackName, envId, workingDir: composeResult.stackDir, composePath: composeResult.composePath ?? undefined },
+					composeResult.content!,
+					envVars,
+					secretVars
+				)
+				: await executeComposeCommand(
+					'down',
+					{
+						stackName,
+						envId,
+						removeVolumes,
+						workingDir: composeResult.stackDir,
+						composePath: composeResult.composePath ?? undefined,
+						envPath: composeResult.envPath ?? undefined,
+						useOverrideFile: isGitStack,
+						// Full stack removal: the Hawser agent cleans its stack dir (#1162)
+						removeFiles: true,
+						filesToDelete: removalFiles
+					},
+					composeResult.content!,
+					envVars,
+					secretVars
+				);
 			if (!downResult.success && !force) {
 				return downResult;
 			}
@@ -2954,29 +3255,43 @@ export async function deployStack(options: DeployStackOptions): Promise<StackOpe
 		// so no override file is needed - only pass secrets for shell injection.
 		const isGitStack = !!sourceDir;
 
-		console.log(`${logPrefix} Calling executeComposeCommand...`);
-		const result = await executeComposeCommand(
-			'up',
-			{
-				stackName: name,
-				envId,
-				forceRecreate,
-				build,
-				noBuildCache,
-				pullPolicy,
-				stackFiles,
-				workingDir,
-				composePath: actualComposePath,
-				envPath: actualEnvPath,
-				useOverrideFile: isGitStack,
-				// Pass compose filename for Hawser (extracted from path or provided explicitly)
-				composeFileName: composeFileName || (actualComposePath ? basename(actualComposePath) : undefined),
-				filesToDelete
-			},
-			compose,
-			isGitStack ? dbNonSecretVars : undefined,
-			secretVars
-		);
+		const isSwarmDeploy = source?.deployMode === 'swarm';
+		console.log(`${logPrefix} Calling ${isSwarmDeploy ? 'executeSwarmStackCommand' : 'executeComposeCommand'}...`);
+		const result = isSwarmDeploy
+			? await executeSwarmStackCommand(
+				'deploy',
+				{
+					stackName: name,
+					envId,
+					workingDir,
+					composePath: actualComposePath
+				},
+				compose,
+				isGitStack ? dbNonSecretVars : undefined,
+				secretVars
+			)
+			: await executeComposeCommand(
+				'up',
+				{
+					stackName: name,
+					envId,
+					forceRecreate,
+					build,
+					noBuildCache,
+					pullPolicy,
+					stackFiles,
+					workingDir,
+					composePath: actualComposePath,
+					envPath: actualEnvPath,
+					useOverrideFile: isGitStack,
+					// Pass compose filename for Hawser (extracted from path or provided explicitly)
+					composeFileName: composeFileName || (actualComposePath ? basename(actualComposePath) : undefined),
+					filesToDelete
+				},
+				compose,
+				isGitStack ? dbNonSecretVars : undefined,
+				secretVars
+			);
 		console.log(`${logPrefix} ========================================`);
 		console.log(`${logPrefix} DEPLOY STACK RESULT`);
 		console.log(`${logPrefix} ========================================`);

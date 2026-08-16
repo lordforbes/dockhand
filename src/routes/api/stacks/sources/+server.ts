@@ -25,6 +25,7 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 				composePath?: string | null;
 				repository?: any;
 				secretProviderId?: number | null;
+				deployMode?: string;
 			}
 		> = {};
 		for (const source of sources) {
@@ -33,6 +34,7 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 				composePath: source.composePath,
 				repository: source.repository,
 				secretProviderId: source.secretProviderId,
+				deployMode: source.deployMode,
 			};
 		}
 

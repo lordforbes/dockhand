@@ -1,0 +1,1 @@
+ALTER TABLE `stack_sources` ADD `deploy_mode` text DEFAULT 'compose' NOT NULL;

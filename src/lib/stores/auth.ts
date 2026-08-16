@@ -21,6 +21,7 @@ export interface Permissions {
 	backups: string[];
 	templates: string[];
 	secrets: string[];
+	swarm: string[];
 }
 
 export interface AuthUser {

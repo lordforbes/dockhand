@@ -35,3 +35,15 @@ export function buildComposeBaseArgs(
 		? ['docker', '-H', composeDockerHost, 'compose', '-p', stackName]
 		: ['docker', 'compose', '-p', stackName];
 }
+
+/**
+ * Builds the argv prefix for `docker stack` commands, same `-H` rationale as
+ * buildComposeBaseArgs. Unlike compose (`-p <name>` flag), the stack name for
+ * `stack deploy`/`stack rm` is a positional argument the caller appends after
+ * the subcommand and its flags (e.g. `[...base, 'deploy', '-c', file, '--with-registry-auth', stackName]`).
+ */
+export function buildSwarmStackBaseArgs(composeDockerHost: string | undefined): string[] {
+	return composeDockerHost
+		? ['docker', '-H', composeDockerHost, 'stack']
+		: ['docker', 'stack'];
+}

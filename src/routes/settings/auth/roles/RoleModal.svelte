@@ -6,7 +6,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { TogglePill } from '$lib/components/ui/toggle-pill';
-	import { Shield, Pencil, Plus, Check, RefreshCw, Box, Image, HardDrive, Cable, Layers, Globe, Download, Bell, Sliders, Settings, Users, Eye, SquarePlus, Play, Square, RotateCcw, Trash2, Terminal, ScrollText, Search, Upload, Plug, Unplug, Copy, GitBranch, KeyRound, Building2, Container, TriangleAlert, ClipboardList, Activity, Timer, Archive } from 'lucide-svelte';
+	import { Shield, Pencil, Plus, Check, RefreshCw, Box, Image, HardDrive, Cable, Layers, Globe, Download, Bell, Sliders, Settings, Users, Eye, SquarePlus, Play, Square, RotateCcw, Trash2, Terminal, ScrollText, Search, Upload, Plug, Unplug, Copy, GitBranch, KeyRound, Building2, Container, TriangleAlert, ClipboardList, Activity, Timer, Archive, Boxes } from 'lucide-svelte';
 	import EnvironmentIcon from '$lib/components/EnvironmentIcon.svelte';
 	import * as Alert from '$lib/components/ui/alert';
 	import { focusFirstInput } from '$lib/utils';
@@ -68,6 +68,7 @@
 		schedules: string[];
 		secrets: string[];
 		backups: string[];
+		swarm: string[];
 	}>({
 		containers: [],
 		images: [],
@@ -86,7 +87,8 @@
 		activity: [],
 		schedules: [],
 		secrets: [],
-		backups: []
+		backups: [],
+		swarm: []
 	});
 
 
@@ -203,6 +205,13 @@
 			{ key: 'stop', label: 'Stop stacks' },
 			{ key: 'remove', label: 'Remove stacks' },
 			{ key: 'edit', label: 'Edit stacks' }
+		],
+		swarm: [
+			{ key: 'view', label: 'View nodes, services & tasks' },
+			{ key: 'manage', label: 'Init/join/leave swarm, manage nodes' },
+			{ key: 'create', label: 'Create services, secrets & configs' },
+			{ key: 'edit', label: 'Update services' },
+			{ key: 'delete', label: 'Remove services, secrets & configs' }
 		]
 	};
 
@@ -224,7 +233,8 @@
 		activity: Activity,
 		schedules: Timer,
 		secrets: KeyRound,
-		backups: Archive
+		backups: Archive,
+		swarm: Boxes
 	};
 
 	const categoryColorsSolid: Record<string, string> = {
@@ -296,7 +306,8 @@
 			activity: [],
 			schedules: [],
 			secrets: [],
-			backups: []
+			backups: [],
+			swarm: []
 		};
 	}
 
@@ -328,7 +339,8 @@
 					activity: [...(role.permissions.activity || [])],
 					schedules: [...(role.permissions.schedules || [])],
 					secrets: [...(role.permissions.secrets || [])],
-					backups: [...(role.permissions.backups || [])]
+					backups: [...(role.permissions.backups || [])],
+					swarm: [...(role.permissions.swarm || [])]
 				};
 				formError = '';
 				formErrors = {};
@@ -358,7 +370,8 @@
 					activity: [...(copyFrom.permissions.activity || [])],
 					schedules: [...(copyFrom.permissions.schedules || [])],
 					secrets: [...(copyFrom.permissions.secrets || [])],
-					backups: [...(copyFrom.permissions.backups || [])]
+					backups: [...(copyFrom.permissions.backups || [])],
+					swarm: [...(copyFrom.permissions.swarm || [])]
 				};
 				formError = '';
 				formErrors = {};

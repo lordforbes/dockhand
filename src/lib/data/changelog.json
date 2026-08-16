@@ -1,5 +1,24 @@
 [
   {
+    "version": "1.1.0",
+    "date": "2026-08-16",
+    "changes": [
+      {
+        "type": "feature",
+        "text": "Docker Swarm support: cluster init/join/leave, nodes, services, tasks, secrets and configs, all under a new Swarm page"
+      },
+      {
+        "type": "feature",
+        "text": "stacks can be deployed via docker stack deploy (Swarm mode) as an alternative to docker compose, toggled per stack"
+      },
+      {
+        "type": "feature",
+        "text": "overlay networks are now only offered when the target environment is actually swarm-active"
+      }
+    ],
+    "imageTag": "fnsys/dockhand:v1.1.0"
+  },
+  {
     "version": "1.0.42",
     "date": "2026-08-16",
     "changes": [
