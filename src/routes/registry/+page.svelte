@@ -148,7 +148,7 @@
 		}
 	}
 
-	async function fetchScannerSettings(envId?: number | null) {
+	async function fetchScannerSettings(envId: number | null = null) {
 		try {
 			const url = envId ? `/api/settings/scanner?env=${envId}&settingsOnly=true` : '/api/settings/scanner?settingsOnly=true';
 			const response = await fetch(url);
