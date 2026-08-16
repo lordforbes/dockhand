@@ -39,7 +39,7 @@
 		}
 	}
 
-	function openModal(cred?: GitCredential) {
+	function openModal(cred: GitCredential | undefined = undefined) {
 		editingCredential = cred || null;
 		showModal = true;
 	}

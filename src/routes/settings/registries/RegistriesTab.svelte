@@ -54,7 +54,7 @@
 		}
 	}
 
-	function openRegModal(registry?: Registry) {
+	function openRegModal(registry: Registry | undefined = undefined) {
 		editingReg = registry || null;
 		showRegModal = true;
 	}

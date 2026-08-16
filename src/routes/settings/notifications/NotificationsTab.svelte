@@ -47,7 +47,7 @@
 		}
 	}
 
-	function openNotifModal(notif?: NotificationSetting) {
+	function openNotifModal(notif: NotificationSetting | undefined = undefined) {
 		editingNotif = notif || null;
 		showNotifModal = true;
 	}

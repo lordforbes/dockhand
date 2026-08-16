@@ -227,7 +227,7 @@
 	 * Sync rawContent TO variables.
 	 * Parses raw content for non-secrets, preserves existing secrets.
 	 */
-	function syncRawToVariables(content?: string) {
+	function syncRawToVariables(content: string | undefined = undefined) {
 		const { vars, warnings } = parseRawContent(content ?? rawContent);
 		parseWarnings = warnings;
 

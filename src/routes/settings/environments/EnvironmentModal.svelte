@@ -1145,7 +1145,7 @@
 	}
 
 	// === Scanner Settings Functions ===
-	async function loadScannerSettings(envId?: number) {
+	async function loadScannerSettings(envId: number | undefined = undefined) {
 		scannerLoading = true;
 		scannerVersions = { grype: null, trivy: null };
 		try {
@@ -1167,7 +1167,7 @@
 		}
 	}
 
-	async function loadScannerVersionsAsync(envId?: number) {
+	async function loadScannerVersionsAsync(envId: number | undefined = undefined) {
 		loadingScannerVersions = true;
 		try {
 			const envParam = envId !== undefined ? `env=${envId}` : '';
@@ -1187,11 +1187,11 @@
 	}
 
 	// Reload only availability/versions without overwriting user's unsaved settings changes
-	async function reloadScannerAvailability(envId?: number) {
+	async function reloadScannerAvailability(envId: number | undefined = undefined) {
 		await loadScannerVersionsAsync(envId);
 	}
 
-	async function saveScannerSettings(envId?: number) {
+	async function saveScannerSettings(envId: number | undefined = undefined) {
 		try {
 			const response = await fetch('/api/settings/scanner', {
 				method: 'POST',
@@ -1299,7 +1299,7 @@
 		}
 	}
 
-	async function removeGrype(envId?: number) {
+	async function removeGrype(envId: number | undefined = undefined) {
 		removingGrype = true;
 		try {
 			const envParam = envId !== undefined ? `&env=${envId}` : '';
@@ -1318,7 +1318,7 @@
 		}
 	}
 
-	async function removeTrivy(envId?: number) {
+	async function removeTrivy(envId: number | undefined = undefined) {
 		removingTrivy = true;
 		try {
 			const envParam = envId !== undefined ? `&env=${envId}` : '';

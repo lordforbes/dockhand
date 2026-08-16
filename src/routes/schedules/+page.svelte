@@ -766,7 +766,7 @@
 		}
 	}
 
-	function formatTimestamp(iso: string | null, tz?: string): string {
+	function formatTimestamp(iso: string | null, tz: string | undefined = undefined): string {
 		if (!iso) return '-';
 		if (!tz) return formatDateTime(iso, true);
 		const d = new Date(iso);

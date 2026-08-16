@@ -46,7 +46,7 @@
 		}
 	}
 
-	function openCfgModal(cfg?: ConfigSet) {
+	function openCfgModal(cfg: ConfigSet | undefined = undefined) {
 		editingCfg = cfg || null;
 		showCfgModal = true;
 	}

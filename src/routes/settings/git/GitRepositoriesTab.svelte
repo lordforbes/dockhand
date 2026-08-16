@@ -58,7 +58,7 @@
 		}
 	}
 
-	function openModal(repo?: GitRepository) {
+	function openModal(repo: GitRepository | undefined = undefined) {
 		editingRepo = repo || null;
 		showModal = true;
 	}

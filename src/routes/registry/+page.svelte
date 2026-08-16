@@ -456,12 +456,12 @@
 		}
 	}
 
-	function formatRegistryBytes(bytes?: number): string {
+	function formatRegistryBytes(bytes: number | undefined = undefined): string {
 		if (!bytes) return '-';
 		return formatBytes(bytes);
 	}
 
-	function formatDate(dateStr?: string): string {
+	function formatDate(dateStr: string | undefined = undefined): string {
 		if (!dateStr) return '-';
 		const date = new Date(dateStr);
 		const now = new Date();
@@ -476,14 +476,14 @@
 		return `${Math.floor(diffDays / 365)} years ago`;
 	}
 
-	function openCopyModal(imageName: string, tag?: string) {
+	function openCopyModal(imageName: string, tag: string | undefined = undefined) {
 		// Build full image name with registry prefix (no tag - modal handles that)
 		copyImageName = buildFullImageName(imageName);
 		copyImageTag = tag || 'latest';
 		showCopyModal = true;
 	}
 
-	function openRunModal(imageName: string, tag?: string) {
+	function openRunModal(imageName: string, tag: string | undefined = undefined) {
 		// Build full image name with registry prefix if applicable
 		const imageWithTag = tag ? `${imageName}:${tag}` : imageName;
 		if (selectedRegistry && supportsBrowsing()) {
@@ -495,7 +495,7 @@
 		showRunModal = true;
 	}
 
-	function openPullModal(imageName: string, tag?: string) {
+	function openPullModal(imageName: string, tag: string | undefined = undefined) {
 		// Build full image name with registry prefix if applicable
 		const imageWithTag = tag ? `${imageName}:${tag}` : imageName;
 		pullImageName = buildFullImageName(imageWithTag);

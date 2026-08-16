@@ -880,7 +880,7 @@ import type { FavoriteGroup } from '../api/preferences/favorite-groups/+server';
 		}
 	}
 
-	async function fetchLogs(tail?: number | string) {
+	async function fetchLogs(tail: number | string | undefined = undefined) {
 		if (!selectedContainer) return;
 		const t = tail ?? tailCount;
 

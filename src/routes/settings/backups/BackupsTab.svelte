@@ -232,7 +232,7 @@
 
 	/** Run a restic maintenance action, streaming its output live into the shared
 	 *  BackupLogModal (identical UX to backup/restore logs). */
-	async function streamRepoAction(title: string, url: string, body: Record<string, unknown>, repository?: string) {
+	async function streamRepoAction(title: string, url: string, body: Record<string, unknown>, repository: string | undefined = undefined) {
 		actionLogTitle = title;
 		actionLogIcon = repository ? getRepoTypeIcon(repository) : undefined;
 		actionLogStatus = 'running';
@@ -444,7 +444,7 @@
 		}
 	}
 
-	async function openModal(dest?: Destination) {
+	async function openModal(dest: Destination | undefined = undefined) {
 		if (dest) {
 			// The LIST endpoint omits envVars (cloud creds) for security.
 			// Re-fetch the single destination so the modal can pre-fill the

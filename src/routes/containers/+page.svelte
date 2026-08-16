@@ -1265,7 +1265,7 @@
 		}
 	}
 
-	function getHealthVariant(health?: string): 'default' | 'destructive' | 'secondary' | 'outline' {
+	function getHealthVariant(health: string | undefined = undefined): 'default' | 'destructive' | 'secondary' | 'outline' {
 		switch (health) {
 			case 'healthy':
 				return 'default';

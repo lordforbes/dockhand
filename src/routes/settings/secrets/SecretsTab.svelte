@@ -48,7 +48,7 @@
 		}
 	}
 
-	function openModal(provider?: SecretProvider) {
+	function openModal(provider: SecretProvider | undefined = undefined) {
 		editing = provider || null;
 		showModal = true;
 	}
