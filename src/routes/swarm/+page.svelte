@@ -10,12 +10,14 @@
 	import ConfirmPopover from '$lib/components/ConfirmPopover.svelte';
 	import {
 		Boxes, Server, Layers, KeyRound, Sliders, Plus, RefreshCw, Trash2, Eye, ScrollText,
-		Link, LogOut, Crown, PauseCircle, PlayCircle, ArrowUpCircle, ArrowDownCircle, Copy, Check, Loader2
+		Link, LogOut, Crown, PauseCircle, PlayCircle, ArrowUpCircle, ArrowDownCircle, Copy, Check, Loader2, Tag,
+		Globe, ExternalLink
 	} from 'lucide-svelte';
 	import { currentEnvironment, appendEnvParam } from '$lib/stores/environment';
 	import { canAccess } from '$lib/stores/auth';
 	import { copyToClipboard } from '$lib/utils/clipboard';
-	import { formatDateTime } from '$lib/stores/settings';
+	import { formatDateTime, appSettings } from '$lib/stores/settings';
+	import { extractTraefikUrls } from '$lib/utils/traefik-urls';
 
 	import InitSwarmModal from './InitSwarmModal.svelte';
 	import JoinSwarmModal from './JoinSwarmModal.svelte';
@@ -25,6 +27,7 @@
 	import CreateServiceModal from './CreateServiceModal.svelte';
 	import CreateSecretModal from './CreateSecretModal.svelte';
 	import CreateConfigModal from './CreateConfigModal.svelte';
+	import NodeLabelsModal from './NodeLabelsModal.svelte';
 
 	interface SwarmStatus {
 		active: boolean;
@@ -65,6 +68,9 @@
 	let inspectNodeId = $state('');
 	let inspectNodeName = $state('');
 	let showNodeInspect = $state(false);
+
+	let editLabelsNode = $state<any>(null);
+	let showNodeLabels = $state(false);
 
 	let inspectServiceId = $state('');
 	let inspectServiceName = $state('');
@@ -217,6 +223,10 @@
 		inspectNodeName = node.hostname;
 		showNodeInspect = true;
 	}
+	function openNodeLabels(node: any) {
+		editLabelsNode = node;
+		showNodeLabels = true;
+	}
 	function openServiceInspect(service: any) {
 		inspectServiceId = service.id;
 		inspectServiceName = service.name;
@@ -321,7 +331,16 @@
 							<tbody>
 								{#each nodes as node}
 									<tr class="border-b hover:bg-muted/50 cursor-pointer" onclick={() => openNodeInspect(node)}>
-										<td class="py-2 flex items-center gap-1.5">{#if node.isLeader}<Crown class="w-3.5 h-3.5 text-amber-500" />{/if}{node.hostname}</td>
+										<td class="py-2">
+											<div class="flex items-center gap-1.5">{#if node.isLeader}<Crown class="w-3.5 h-3.5 text-amber-500" />{/if}{node.hostname}</div>
+											{#if node.labels && Object.keys(node.labels).length > 0}
+												<div class="flex flex-wrap gap-1 mt-1">
+													{#each Object.entries(node.labels) as [key, value]}
+														<span class="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{key}={value}</span>
+													{/each}
+												</div>
+											{/if}
+										</td>
 										<td><Badge variant={node.role === 'manager' ? 'default' : 'secondary'}>{node.role}</Badge></td>
 										<td><Badge variant={node.availability === 'active' ? 'secondary' : 'destructive'}>{node.availability}</Badge></td>
 										<td><Badge variant={node.state === 'ready' ? 'secondary' : 'destructive'}>{node.state}</Badge></td>
@@ -329,6 +348,9 @@
 										<td class="text-right">
 											{#if $canAccess('swarm', 'manage')}
 												<div class="flex items-center justify-end gap-1" onclick={(e) => e.stopPropagation()}>
+													<Button variant="ghost" size="icon" class="h-7 w-7" title="Edit labels" onclick={() => openNodeLabels(node)}>
+														<Tag class="w-4 h-4" />
+													</Button>
 													<Button variant="ghost" size="icon" class="h-7 w-7" title={node.availability === 'drain' ? 'Activate' : 'Drain'} onclick={() => updateNode(node, { availability: node.availability === 'drain' ? 'active' : 'drain' })}>
 														{#if node.availability === 'drain'}<PlayCircle class="w-4 h-4" />{:else}<PauseCircle class="w-4 h-4" />{/if}
 													</Button>
@@ -373,8 +395,29 @@
 							</thead>
 							<tbody>
 								{#each services as service}
+									{@const traefikUrls = $appSettings.honorProxyLabels ? extractTraefikUrls(service.labels) : []}
 									<tr class="border-b hover:bg-muted/50 cursor-pointer" onclick={() => openServiceInspect(service)}>
-										<td class="py-2">{service.name}</td>
+										<td class="py-2">
+											<div>{service.name}</div>
+											{#if traefikUrls.length > 0}
+												<div class="flex flex-wrap gap-1 mt-1">
+													{#each traefikUrls as t}
+														<a
+															href={t.url}
+															target="_blank"
+															rel="noopener noreferrer"
+															onclick={(e) => e.stopPropagation()}
+															class="inline-flex items-center gap-0.5 text-xs bg-primary/10 hover:bg-primary/20 text-primary px-1 py-0.5 rounded transition-colors shrink-0"
+															title="Traefik router {t.router} → {t.url}"
+														>
+															<Globe class="w-2.5 h-2.5" />
+															<span class="max-w-[160px] truncate">{t.url.replace(/^https?:\/\//, '')}</span>
+															<ExternalLink class="w-2.5 h-2.5 opacity-60" />
+														</a>
+													{/each}
+												</div>
+											{/if}
+										</td>
 										<td class="text-muted-foreground truncate max-w-[240px]">{service.image}</td>
 										<td><Badge variant="secondary">{service.mode}</Badge></td>
 										<td>{service.replicas ?? '—'}</td>
@@ -483,6 +526,7 @@
 <InitSwarmModal bind:open={showInitModal} onClose={() => showInitModal = false} onSuccess={fetchStatus} />
 <JoinSwarmModal bind:open={showJoinModal} onClose={() => showJoinModal = false} onSuccess={fetchStatus} />
 <NodeInspectModal bind:open={showNodeInspect} nodeId={inspectNodeId} nodeName={inspectNodeName} />
+<NodeLabelsModal bind:open={showNodeLabels} node={editLabelsNode} onClose={() => showNodeLabels = false} onSuccess={fetchTabData} />
 <ServiceInspectModal bind:open={showServiceInspect} serviceId={inspectServiceId} serviceName={inspectServiceName} />
 <ServiceLogsModal bind:open={showServiceLogs} serviceId={inspectServiceId} serviceName={inspectServiceName} />
 <CreateServiceModal bind:open={showCreateService} onClose={() => showCreateService = false} onSuccess={fetchTabData} />

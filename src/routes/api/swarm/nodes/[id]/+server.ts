@@ -68,11 +68,22 @@ export const POST: RequestHandler = async (event) => {
 			return json({ error: 'version is required' }, { status: 400 });
 		}
 
+		// The Docker API's node update is a full NodeSpec replace, not a patch - the
+		// `docker node update` CLI itself always reads the current spec and merges
+		// before writing back. Without this, a drain-only call (no role/labels in the
+		// body) would silently reset Role to '' and wipe every existing label; the same
+		// applies to a promote-only call resetting Availability. Always read-merge-write.
+		const current = await inspectNode(params.id!, envIdNum);
+		const currentSpec = current?.Spec || {};
+
 		const options: UpdateNodeOptions = {
-			name: body.name,
-			role: body.role,
-			availability: body.availability,
-			labels: body.labels
+			name: body.name ?? currentSpec.Name,
+			role: body.role ?? currentSpec.Role,
+			availability: body.availability ?? currentSpec.Availability,
+			// Omitting `labels` entirely preserves the existing set (drain/promote/demote
+			// calls never send it). An explicit `labels` - including `{}` - is treated as
+			// the complete desired set, so the labels editor can delete keys too.
+			labels: body.labels !== undefined ? body.labels : (currentSpec.Labels || {})
 		};
 
 		await updateNode(params.id!, options, body.version, envIdNum);
