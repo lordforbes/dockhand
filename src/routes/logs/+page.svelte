@@ -426,7 +426,7 @@ import type { FavoriteGroup } from '../api/preferences/favorite-groups/+server';
 		localStorage.setItem(TERMINAL_SPLIT_KEY, String(terminalSplitRatio));
 	}
 
-	async function openTerminal(containerId: string, containerName: string, layout?: 'below' | 'right') {
+	async function openTerminal(containerId: string, containerName: string, layout: 'below' | 'right' | undefined = undefined) {
 		if (terminalOpen && terminalContainerId === containerId && (!layout || layout === terminalLayout)) {
 			closeTerminal();
 			return;
