@@ -5,8 +5,9 @@
 	import { Button } from '$lib/components/ui/button';
 	import { TogglePill } from '$lib/components/ui/toggle-pill';
 	import * as Select from '$lib/components/ui/select';
-	import { Plus, Trash2, Layers, TriangleAlert, MapPin, Tag, Globe } from 'lucide-svelte';
+	import { Plus, Trash2, Layers, TriangleAlert, MapPin, Tag, Globe, HelpCircle, ExternalLink } from 'lucide-svelte';
 	import * as Alert from '$lib/components/ui/alert';
+	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { currentEnvironment, appendEnvParam } from '$lib/stores/environment';
 	import { focusFirstInput } from '$lib/utils';
 
@@ -331,7 +332,42 @@
 					<div class="flex items-center gap-1.5">
 						<Globe class="w-4 h-4 text-muted-foreground" />
 						<div>
-							<Label>Traefik routing</Label>
+							<div class="flex items-center gap-1">
+								<Label>Traefik routing</Label>
+								<Tooltip.Root>
+									<Tooltip.Trigger class="text-muted-foreground hover:text-foreground">
+										<HelpCircle class="w-3.5 h-3.5" />
+									</Tooltip.Trigger>
+									<Tooltip.Content class="w-80 text-sm z-[200]" side="right">
+										<div class="space-y-3">
+											<div>
+												<p class="font-medium">What this does</p>
+												<p class="text-xs text-muted-foreground">Traefik is a reverse proxy that watches the Docker API directly and routes to your service's live tasks — it doesn't rely on Swarm's DNS/VIP, so it doesn't inherit that flakiness. This toggle only generates the routing labels; it assumes Traefik is <strong>already deployed</strong> on this cluster with the Docker Swarm provider enabled. It won't deploy Traefik for you.</p>
+											</div>
+											<div>
+												<p class="font-medium">Domain</p>
+												<p class="text-xs text-muted-foreground">The hostname Traefik will route to this service, e.g. <code class="bg-muted px-1 rounded">app.example.com</code>. Needs a DNS record pointing wherever Traefik's entrypoint is exposed.</p>
+											</div>
+											<div>
+												<p class="font-medium">Entrypoint</p>
+												<p class="text-xs text-muted-foreground">A named entrypoint from Traefik's own static config — usually <code class="bg-muted px-1 rounded">web</code> (port 80) or <code class="bg-muted px-1 rounded">websecure</code> (port 443). It must already exist there; this field doesn't create one.</p>
+											</div>
+											<div>
+												<p class="font-medium">TLS / cert resolver</p>
+												<p class="text-xs text-muted-foreground">Turn TLS on if Traefik should terminate HTTPS for this route. Cert resolver is the ACME/Let's Encrypt resolver name from Traefik's config — leave it blank if you're not using automatic certs (e.g. terminating TLS elsewhere).</p>
+											</div>
+											<a
+												href="https://doc.traefik.io/traefik/providers/docker/#docker-swarm-mode"
+												target="_blank"
+												rel="noopener noreferrer"
+												class="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+											>
+												Traefik's Swarm provider docs <ExternalLink class="w-3 h-3" />
+											</a>
+										</div>
+									</Tooltip.Content>
+								</Tooltip.Root>
+							</div>
 							<p class="text-xs text-muted-foreground">Generates traefik.* service labels. Traefik routes to live tasks directly and doesn't depend on Swarm's DNS/VIP.</p>
 						</div>
 					</div>
